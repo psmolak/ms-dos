@@ -15,24 +15,23 @@ section .data
 	; konfiguracja
 	maxlength     dw 0x100
 
-	; messages
+	; wiadomosci
 	fatalmsg      db 'Wystapil nieoczekiwany blad $'
 	intromsg      db 'Podaj nazwe pliku $'
 	invalidmsg    db 'Podano bledna nazwe pliku $'
 	nofilemsg     db 'Podany o podanej nazwie nie istnieje $'
-	leavemsg      db 'Program pomyslnie zakonczyl dzialanie $'
 	openfailmsg   db 'Otwarcie pliku nie powiodlo sie $'
 	enterfailmsg  db 'Pobranie nazwy nie powiodlo sie $'
-	emptymsg      db '$'
 
 ; -----------------------------------------------------------------
 section .bss
 ; -----------------------------------------------------------------
 
-	filename      resb 0x100 + 1
-	handle        resw 0x1
-	length        resw 0x1
-	buffer        resb 0x100
+	filename      resb 0x100 + 1	; bufor na nazwe pliku
+	length        resw 0x1          ; dlugosc nazwy
+	handle        resw 0x1          ; handler do pliku
+	buffer        resb 0x100        ; bufor na wczytanie pliku
+	line          resw 0x1          ; numer aktualnej linii
 
 ; -----------------------------------------------------------------
 section .text
@@ -45,9 +44,16 @@ section .text
 	int 21h
 %endmacro
 
+; pomocnicze makro, któro wypisuje znak na ekran
+%macro putchar 1
+	mov ah, 02h
+	mov dl, %1
+	int 21h
+%endmacro
+
 start:
-	; Wyświetl komunikat powitalny
-	putline intromsg
+	putline intromsg	; wyswietl komunikat powitalny
+	mov word [line], 0	; wyzeruj licznik linii
 
 entername:
 	; Wczytaj nazwe pliku
@@ -66,15 +72,14 @@ entername:
 	mov byte [di], 0
 
 readfile:
-	; Otworz plik o podanej nazwie
-	mov ah, 3Dh
+	mov ah, 3Dh		; otworz plik o podanej nazwie
 	mov al, 0		; atrybut otwarcia, 0 = read
 	mov dx, filename
 	int 21h
-	jc openerror
+	jc openerror		; sprawdz czy byl blad
 	mov [handle], ax
 
-loop:
+.loop:
 	; Pobierz pojedynczy znak z pliku
 	mov ah, 3Fh
 	mov bx, [handle]
@@ -82,23 +87,59 @@ loop:
 	mov dx, buffer
 	int 21h
 
-	; zapamiętjamy status ax (wypisanie znaku moze go zmienic)
-	push ax
-
-	; Wypisz wczytany znak na stdout
-	mov ah, 40h
-	mov bx, 1
-	mov cx, 1
-	mov dx, buffer
-	int 21h
-
+	push ax			; zapamiętjamy status ax
+	mov ax, [buffer]	; argument dla cosume
+	call @consume
 	pop ax			; przywrocmy status ax
-	test ax, ax		; ax = 0? jeśli tak, mamy EOF
-	jnz loop                ; nie jest zerem, jeszcze raz!
 
-	; Wypisz wiadomosc o zakonczeniu programu
-	putline emptymsg
-	putline leavemsg
+	test ax, ax		; ax = 0? jeśli tak, mamy EOF
+	jnz .loop               ; nie jest zerem, jeszcze raz!
+
+	jmp exit
+
+
+@consume:
+	; procedura, która wykonuje działanie na podstawie
+	; właśnie wczytanego znaku, który przekazujemy w ax
+	; narazie poprostu wypisuje otrzymany znak
+
+	push ax			; zapamietaj argument
+	putchar al		; wypisz znak
+	pop ax			; przywroc argument
+
+	cmp ax, 0xa		; znak nowej linii?
+	jne .end		; nie, skocz na koniec funkcji
+
+	mov ax, [line]		; ustaw argument dla printnum
+	call @printnum		; wywolaj printnum
+	inc word [line]		; zwieksz numer linii
+
+	putchar ' '
+.end:
+	ret
+
+
+@printnum:
+	; wypisuje liczbę podaną jako argument na wyjście
+	; https://stackoverflow.com/a/45904076/4237072
+
+	mov bx, 10	; ustaw podstawe dzielenia
+	xor cx, cx	; wyzeruj licznik cx
+.divide:
+	xor dx, dx	; DX musi byc wyzerowany (DX:AX) / BX
+	div bx		; AX = wynik, DX = reszta z dzielenia
+	push dx		; zapiszmy reszte z dzielenia na stosie
+	inc cx		; kolejna cyfra
+	test ax, ax	; zostalo cos do dzielenia?
+	jnz .divide	; tak, dzielimy dalej
+.print:
+	pop dx		; wez liczbe ze stosu
+        add dl, "0"	; zamień liczbę na jej odpowiednik w ASCII
+	putchar dl	; wypisz znak
+	loop .print
+
+	ret
+
 
 exit:
 	mov ah, 4Ch
