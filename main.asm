@@ -4,9 +4,6 @@ org 0x100
 ;
 ; Jest to prosty automat przetwarzający plik znak
 ; po znaku, odpowiednio reagując na napotkanie nowej linii.
-;
-; Warto zadbać o obsługę błędów.
-; Można dodać jakieś kolorki jak starczy czasu.
 
 ; -----------------------------------------------------------------
 section .data
@@ -53,7 +50,7 @@ section .text
 
 start:
 	putline intromsg	; wyswietl komunikat powitalny
-	mov word [line], 0	; wyzeruj licznik linii
+	mov word [line], 1	; ustaw licznik linii
 
 entername:
 	; Wczytaj nazwe pliku
@@ -79,6 +76,14 @@ readfile:
 	jc openerror		; sprawdz czy byl blad
 	mov [handle], ax
 
+	; wypisanie numeru pierwszej linii jest problematyczne,
+	; gdyz pierwszy znak nowej linii wystepuje na koncu linii,
+	; stad sztucznie wymuszamy wypisanie pierwszego numeru
+	mov ax, [line]
+	call @printnum
+	inc word [line]
+	putchar ' '
+
 .loop:
 	; Pobierz pojedynczy znak z pliku
 	mov ah, 3Fh
@@ -87,36 +92,23 @@ readfile:
 	mov dx, buffer
 	int 21h
 
-	push ax			; zapamiętjamy status ax
-	mov ax, [buffer]	; argument dla cosume
-	call @consume
-	pop ax			; przywrocmy status ax
+        push ax			; zapisz ax na pozniej
+	mov byte al, [buffer]
+	putchar al		; wypisz znak
 
+	cmp byte al, 0xa	; znak nowej linii?
+	jne .eoftest		; nie, skocz do eoftest
+	mov ax, [line]		; ustaw argument dla printnum
+	call @printnum		; wywolaj printnum
+	inc word [line]		; zwieksz numer linii
+	putchar ' '		; wypisz spacje po numerze linii
+
+.eoftest:
+	pop ax			; przywrocmy status ax
 	test ax, ax		; ax = 0? jeśli tak, mamy EOF
 	jnz .loop               ; nie jest zerem, jeszcze raz!
 
 	jmp exit
-
-
-@consume:
-	; procedura, która wykonuje działanie na podstawie
-	; właśnie wczytanego znaku, który przekazujemy w ax
-	; narazie poprostu wypisuje otrzymany znak
-
-	push ax			; zapamietaj argument
-	putchar al		; wypisz znak
-	pop ax			; przywroc argument
-
-	cmp ax, 0xa		; znak nowej linii?
-	jne .end		; nie, skocz na koniec funkcji
-
-	mov ax, [line]		; ustaw argument dla printnum
-	call @printnum		; wywolaj printnum
-	inc word [line]		; zwieksz numer linii
-
-	putchar ' '
-.end:
-	ret
 
 
 @printnum:
